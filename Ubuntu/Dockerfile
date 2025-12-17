@@ -14,6 +14,7 @@ RUN apt-get update && \
     curl -sSL https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/msprod.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
+        libcap2-bin \
         mssql-server \
         mssql-server-fts && \
     ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
@@ -28,5 +29,27 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+
+# Create non-root user and update permissions
+#
+RUN mkdir -p -m 770 /var/opt/mssql && chgrp -R 0 /var/opt/mssql
+
+# Grant sql the permissions to connect to ports <1024 as a non-root user
+#
+RUN setcap 'cap_net_bind_service+ep' /opt/mssql/bin/sqlservr
+
+# Allow dumps from the non-root process
+# 
+RUN setcap 'cap_sys_ptrace+ep' /opt/mssql/bin/paldumper
+RUN setcap 'cap_sys_ptrace+ep' /usr/bin/gdb
+
+# Add an ldconfig file because setcap causes the os to remove LD_LIBRARY_PATH
+# and other env variables that control dynamic linking
+#
+RUN mkdir -p /etc/ld.so.conf.d && touch /etc/ld.so.conf.d/mssql.conf
+RUN echo -e "# mssql libs\n/opt/mssql/lib" >> /etc/ld.so.conf.d/mssql.conf
+RUN ldconfig
+
+USER mssql
 # Default command to start SQL Server
 CMD ["/opt/mssql/bin/sqlservr"]
